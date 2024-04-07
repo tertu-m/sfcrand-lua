@@ -12,7 +12,7 @@ Neither version needs any external dependencies.
 
 Both versions expect that Lua floating numbers are of type `double`, and the mainline Lua version expects that integers are 64 bits. The LuaJIT version requires support for 64-bit bitwise operations on FFI types, and as such will not work on LuaJIT 2.0.5 or earlier.
 
-Thw two versions behave slightly differently,
+The two versions behave slightly differently to account for differences in their environment and standard library. For example, `sfcrand.random(0)` returns an integer in the mainline version and raises an error in the LuaJIT version.
 
 ## Usage
 The library should be loaded using `local sfcrand = require "sfcrand"`. If you do not do this, the shared RNG will not work properly.
@@ -41,4 +41,4 @@ The library should be loaded using `local sfcrand = require "sfcrand"`. If you d
 *This function is available in both the mainline and LuaJIT versions, but behaves differently in each. See the source for more details.
 
 ## Performance
-On an M1 MacBook Air, the LuaJIT version performs faster than LuaJIT's `math.random`. The mainline Lua version on the same machine is slower.
+On an M1 MacBook Air, the LuaJIT version performs faster than LuaJIT's `math.random`. The mainline Lua version on the same machine is slower than Lua 5.4's `math.random`.
