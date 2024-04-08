@@ -140,7 +140,7 @@ local function sfc64_lua_random(state, err_level, arg1, arg2)
     return min + candidate
 end
 
-local state_format_string = "<I2i8i8i8i8"
+local state_format_string = "<I2i8i8i8i8d"
 
 local mt
 
@@ -148,10 +148,19 @@ local function sfc64_create()
     return setmetatable({0,0,0,0}, mt)
 end
 
+local sqrt = math.sqrt
+local log = math.log
 mt = {
     __tostring = function(self)
-        return string.pack(state_format_string, 1, self[1], self[2], self[3], self[4])
+        local saved_spare_normal = self.spare_normal
+        if saved_spare_normal == nil then
+            -- Set it to nan. This will signal that it should be nil at load time.
+            saved_spare_normal = 0/0
+        end
+        return string.pack(state_format_string, 2, self[1], self[2], self[3], self[4],
+        saved_spare_normal)
      end,
+    -- If self == other, all functions called on either state will produce the same output.
     __eq = function(self, other)
         return type(other) == "table"
             and getmetatable(other) == mt
@@ -159,6 +168,7 @@ mt = {
             and self[2] == other[2]
             and self[3] == other[3]
             and self[4] == other[4]
+            and self.spare_normal == other.spare_normal
     end,
     __index = {
         -- Functions with less overhead.
@@ -182,6 +192,35 @@ mt = {
             self[4] = ctr + 1
             return result
         end,
+        -- Generate normally-distributed numbers using the Marsaglia polar algorithm.
+        next_normal = function(self)
+            local spare_normal = self.spare_normal
+            if spare_normal then
+                self.spare_normal = nil
+                return spare_normal
+            end
+            -- INLINED GENERATOR --
+            local a, b, c, ctr = self[1], self[2], self[3], self[4]
+            local samples = {}
+            local val, result
+            repeat
+                val = 0.0
+                for i=1,2 do
+                    result = a + b + ctr
+                    a = b ~ (b >> 11)
+                    b = c * 9
+                    c = result + ((c << 24) | (c >> 40))
+                    ctr = ctr + 1
+                    result = (result >> 11) * 0x2.0p-53 - 1.0
+                    val = val + result * result
+                    samples[i] = result
+                end
+            until val < 1 and val > 0
+            val = sqrt(-2 * log(val) / val)
+            self.spare_normal = result * val
+            self[1], self[2], self[3], self[4] = a, b, c, ctr
+            return samples[1] * val
+        end,
         -- The standard math.random* interface.
         random = function(self, arg1, arg2) return sfc64_lua_random(self, 2, arg1, arg2) end,
         seed = function(self, ...) return sfc64_seed(self, 2, ...) end,
@@ -190,8 +229,8 @@ mt = {
 
 local global_generator = sfc64_create()
 global_generator:seed(math.random(0),math.random(0),math.random(0))
-print(tostring(global_generator))
 local state_next = mt.__index.next
+local state_next_normal = mt.__index.next_normal
 local sfcrand = {
     new = function(...)
         local state = sfc64_create()
@@ -200,17 +239,36 @@ local sfcrand = {
     end,
     fromstring = function(str)
         local results = {string.unpack(state_format_string, str)}
-        if #results ~= 5 then
+        local num_results = #results
+        if num_results < 6 then
             error("invalid state", 2)
         end
-        if results[1] ~= 1 then
+        local version = results[1]
+        if version == nil or version < 1 or version > 2 then
             error("invalid version",2)
         end
-        return setmetatable({results[2], results[3], results[4], results[5]},mt)
+        if (version == 1 and num_results ~= 6) or (version == 2 and num_results ~= 7) then
+            error("invalid state", 2)
+        end
+
+        -- Decode the saved spare normal. If this is a version 1 state, next_normal() wasn't
+        -- available and this should always be nil.
+        local saved_spare_normal = nil
+        if version == 2 then
+            saved_spare_normal = results[6]
+            if saved_spare_normal ~= saved_spare_normal then
+                -- This means the saved spare_normal is a nan, which is the encoding for nil.
+                saved_spare_normal = nil
+            end
+        end
+
+        return setmetatable({results[2], results[3], results[4], results[5],
+            spare_normal=saved_spare_normal},mt)
     end,
     -- Convenience functions that call methods of the "global" generator.
     next = function() return state_next(global_generator) end,
     next_int = function() return sfc64_next_bits(global_generator) end,
+    next_normal = function() return state_next_normal(global_generator) end,
     random = function(arg1, arg2) return global_generator:random(arg1, arg2) end,
     randomseed = function(...) return global_generator:seed(...) end,
 }

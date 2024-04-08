@@ -24,6 +24,7 @@ The library should be loaded using `local sfcrand = require "sfcrand"`. If you d
 |`sfcrand.fromstring(str)`|Loads a random state from a string created by `tostring(state)`.|Both*|
 |`sfcrand.next()`|Gets the next floating point output on the interval [0,1) from the shared RNG.|Both|
 |`sfcrand.next_int()`|Gets the next 64-bit integer output from the shared RNG.|Mainline|
+|`sfcrand.next_normal()`|Get a normally-distributed floating point value from the shared RNG.|Mainline**|
 |`sfcrand.next_raw()`|Get the next output from the shared RNG as a `uint64_t` cdata.|LuaJIT|
 |`sfcrand.random([n,[m]])`|Acts similarly to `math.random`. Works on the shared RNG.|Both*|
 |`sfcrand.randomseed([x, [y, [z]])`|Reseeds the shared RNG with the given integer seeds.|Both*|
@@ -33,12 +34,16 @@ The library should be loaded using `local sfcrand = require "sfcrand"`. If you d
 |------|--------|--------------------|
 |`state:next()`|Gets the next floating point output on the interval [0,1) from the state.|Both|
 |`state:next_int()`|Gets the next 64-bit integer output from the state.|Mainline|
+|`state:next_normal()`|Get the next normally-distributed floating point value from the state.|Mainline**|
 |`state:next_raw()`|Get the next output from the state as a `uint64_t` cdata.|LuaJIT|
 |`state:random([n[,m]])`|Acts similarly to `math.random`.|Both*|
 |`state:seed([x[,y[,z]])`|Reseeds the shared RNG with the given integer seeds.|Both*|
 |`tostring(state)`|Converts a state into a string representation that can be loaded with `sfcrand.fromstring`.|Both*|
 
+The `==` operator is implemented on states. Two states are equal if their internal states are equivalent. This does take into account the spare normal that the mainline version generates.
+
 *This function is available in both the mainline and LuaJIT versions, but behaves differently in each. See the source for more details.
+**I plan to implement `next_normal()` in the LuaJIT version as well, but have not sone so yet.
 
 ## Performance
 On an M1 MacBook Air, the LuaJIT version performs faster than LuaJIT's `math.random`. The mainline Lua version on the same machine is slower than Lua 5.4's `math.random`.

@@ -24,6 +24,7 @@ local ffi = require "ffi"
 
 ffi.cdef [[
     typedef struct sfc64_state { uint64_t a; uint64_t b; uint64_t c; uint64_t ctr; } sfc64_state_t;
+    unsigned long long strtoull( const char *restrict str, char **restrict str_end, int base );
 ]]
 
 -- Functions, types, and constants that will be useful later.
@@ -31,6 +32,11 @@ local rshift = bit.rshift
 local uint64_ct = ffi.typeof "uint64_t"
 local int64_ct = ffi.typeof "int64_t"
 local LARGEST_EXACT_INTEGER = 2^53
+
+-- Test to make sure 64-bit bitwise operations work.
+if bit.lshift(uint64_ct(1), 32) == 0 then
+    error("This version of LuaJIT does not support 64-bit bitwise operations.")
+end
 
 -- Returns the next output as a uint64_t in cdata form.
 local function sfc64_next_bits(state)
@@ -171,23 +177,45 @@ local sfc_generator
 -- Some lenience is given.
 local function sfc64_fromstring(str, err_level)
     err_level = err_level + 1
-    local matches = string.match("(%d)*ULL,(%d)*ULL,(%d)*ULL,(%d)*ULL,(%d)*ULL", str)
+    local matches = {string.match(str,"(%d+)ULL,(%d+)ULL,(%d+)ULL,(%d+)ULL,(%d+)ULL")}
+    local ints = {}
     if #matches ~= 5 then
         error("invalid state", err_level)
     end
-    if uint64_ct(matches[1]) ~= 1 then
+    if tonumber(matches[1]) ~= 1 then
         error("invalid version", err_level)
     end
+    -- Clear errno in case something else used it.
+    ffi.errno(0)
+    for i=1,4 do
+        local match = matches[i+1]
+        -- The only valid value that can become 0 is the string 0.
+        -- If the match wasn't that string, and the result from strtoull is 0, that means an
+        -- error occurred, even if strtoull didn't signal that one did.
+        local string_is_zero = match == "0"
+        local converted_match = uint64_ct(ffi.C.strtoull(match, nil, 10))
+        if ffi.errno() ~= 0 or (converted_match == 0 and not string_is_zero) then
+            error("invalid state", err_level)
+        end
+        ints[i] = converted_match
+    end
     return sfc_generator(
-        uint64_ct(matches[2]),
-        uint64_ct(matches[3]),
-        uint64_ct(matches[4]),
-        uint64_ct(matches[5])
+        ints[1],
+        ints[2],
+        ints[3],
+        ints[4]
     )
 end
 
 local mt = {
     __tostring = function(self) return sfc64_tostring(self) end,
+    __eq = function(self, other)
+        return ffi.istype(sfc_generator, other)
+            and self.a == other.a
+            and self.b == other.b
+            and self.c == other.c
+            and self.ctr == other.ctr
+    end,
     __index = {
         next_raw = function(self) return sfc64_next_bits(self) end,
         -- An efficient function when you just want a number from [0,1).
